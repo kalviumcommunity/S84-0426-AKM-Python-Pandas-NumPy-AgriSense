@@ -8,8 +8,11 @@ import { getMarketData, getClimateRisk, getLLMInsight } from "@/lib/api";
 import ErrorMessage from "@/components/ui/ErrorMessage";
 import LoadingSkeleton from "@/components/ui/LoadingSkeleton";
 import EmptyState from "@/components/ui/EmptyState";
+import { useAuth } from "@/context/AuthContext";
 
 export default function Dashboard() {
+  const { user } = useAuth();
+  
   const [marketData, setMarketData] = useState<any>(null);
   const [climateRisk, setClimateRisk] = useState<any>(null);
   const [aiInsight, setAiInsight] = useState<string>("");
@@ -20,35 +23,45 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      // Run API calls in parallel (defaulting to Wheat for now)
+      // Run API calls in parallel (defaulting to user's crop)
+      const safeCrop = user?.crop || "Wheat";
       const [marketRes, climateRes] = await Promise.all([
-        getMarketData("Wheat"),
-        getClimateRisk(), // defaults to current location if params not passed
+        getMarketData(safeCrop),
+        getClimateRisk(undefined, undefined, safeCrop), // defaults to current location if params not passed
       ]);
 
-      // Handle typical FastAPI responses or mock fallbacks
-      const topMarketData =
-        marketRes?.data && Array.isArray(marketRes.data)
-          ? marketRes.data[0]
-          : marketRes;
+      // FastAPI returns the data directly as an object
+      const topMarketData = marketRes || {};
       setMarketData(topMarketData);
-      setClimateRisk(climateRes);
+      setClimateRisk(climateRes || {});
 
       // Fetch insight sequentially based on the retrieved data
-      const insightRes = await getLLMInsight({
-        market: topMarketData,
-        climate: climateRes,
-      });
+      if (topMarketData?.crop_name) {
+        try {
+          const insightRes = await getLLMInsight({
+            crop: topMarketData.crop_name,
+            predicted_yield: 45 * user.acres,
+            current_price: topMarketData.current_price || 2000,
+            climate_risk_level: climateRes?.risk_level || "Low",
+            location: user.location,
+          });
 
-      // Usually `{ insight: "..." }` or `{ response: "..." }`
-      setAiInsight(
-        insightRes?.insight ||
-          insightRes?.response ||
-          "Insights are currently unavailable based on the latest data."
-      );
+          // Handle different response formats
+          setAiInsight(
+            insightRes?.insight_text ||
+              insightRes?.insight ||
+              insightRes?.response ||
+              "Insights are currently unavailable based on the latest data."
+          );
+        } catch (insightErr) {
+          console.warn("Failed to fetch AI insight:", insightErr);
+          setAiInsight("Insights are currently unavailable.");
+        }
+      }
     } catch (err: any) {
-      console.error(err);
-      setError("Failed to fetch dashboard data. Please check if your backend is running.");
+      const errorMsg = err?.message || "Failed to fetch dashboard data. Please check if your backend is running.";
+      setError(errorMsg);
+      console.error("Dashboard error:", err);
     } finally {
       setLoading(false);
     }
@@ -56,7 +69,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchDashboardData();
-  }, []);
+  }, [user.crop, user.location, user.acres]);
 
   const latestDataAge = "Just now";
 
@@ -76,10 +89,10 @@ export default function Dashboard() {
               Your farm · {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
             </span>
             <h1 className="font-display font-semibold text-[28px] text-[#2C2416]">
-              Good morning, Rajan.
+              Good morning, {user.name}.
             </h1>
             <p className="font-body font-light text-[14px] text-[#7A6A55]">
-              Wheat season · Week 14 of 26
+              {user.crop} season ({user.season})
             </p>
           </div>
           
@@ -104,7 +117,7 @@ export default function Dashboard() {
         {/* Season Progress */}
         <section className="w-full relative">
           <span className="uppercase tracking-[0.14em] text-[#7A6A55] text-[10px] font-medium block mb-2">
-            Season progress — Week 14 of 26
+            {user.crop} season progress — Week 14 of 26
           </span>
           <div className="w-full h-[8px] bg-[#D9CEB8] rounded-[4px] relative mb-4">
             <div
@@ -120,14 +133,20 @@ export default function Dashboard() {
         </section>
 
         {/* Metric Tiles Row */}
-        <section className="grid grid-cols-1 md:grid-cols-3 gap-[12px]">
+        <section className={`grid grid-cols-1 md:grid-cols-3 gap-[12px] ${error ? "opacity-50 pointer-events-none" : ""}`}>
           {/* Tile 1: Current Price */}
           <div className="bg-[#F5F1EA] rounded-[10px] p-[20px] flex flex-col">
             <span className="text-[#7A6A55] font-medium text-[11px] uppercase tracking-[0.06em] mb-2">
-              Wheat Price (Per Quintal)
+              {user.crop} Price (Per Quintal)
             </span>
             {loading ? (
               <Skeleton className="h-[38px] w-24 my-1" />
+            ) : marketData?.is_missing_data ? (
+              <div className="flex-1 flex items-center mt-1">
+                <span className="text-[#7A3B2E] font-medium text-[13px] leading-tight">
+                  {marketData.message || `Market data not available for ${user.crop} right now.`}
+                </span>
+              </div>
             ) : (
               <>
                 <span className="font-display font-semibold text-[32px] text-[#5C7A52]">

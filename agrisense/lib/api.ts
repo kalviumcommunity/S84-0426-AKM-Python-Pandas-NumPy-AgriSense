@@ -4,16 +4,19 @@
  */
 
 // Dynamically use the environment variable to ensure no hardcoded production paths!
-const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 /**
  * Helper to handle fetch responses and throw structured errors
  */
-async function fetchWithHandler(endpoint: string, options: RequestInit = {}) {
+async function fetchWithHandler(endpoint: string, options: RequestInit = {}, timeoutMs = 8000) {
   try {
     const defaultHeaders: HeadersInit = {
       "Content-Type": "application/json",
     };
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     const response = await fetch(`${BASE_URL}${endpoint}`, {
       ...options,
@@ -21,15 +24,44 @@ async function fetchWithHandler(endpoint: string, options: RequestInit = {}) {
         ...defaultHeaders,
         ...options.headers,
       },
+      signal: controller.signal,
     });
+    
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || `API request failed with status: ${response.status}`);
+      let errorMsg = `API request failed with status: ${response.status}`;
+      try {
+        const errorData = await response.json();
+        if (errorData.detail) {
+          errorMsg = typeof errorData.detail === 'string' 
+            ? errorData.detail 
+            : JSON.stringify(errorData.detail);
+        }
+      } catch (parseErr) {
+        // Ignore JSON parse errors
+      }
+      
+      // Log but don't crash on 404/no data scenarios
+      if (response.status === 404) {
+        console.warn(`[API 404] ${endpoint}: ${errorMsg}`);
+        return { data: [], message: errorMsg };
+      }
+      
+      throw new Error(errorMsg);
     }
 
-    return await response.json();
-  } catch (error) {
+    const data = await response.json();
+    
+    // Normalize response format - some endpoints return data directly, others nest it
+    return data;
+  } catch (error: any) {
+    if (error.name === "AbortError") {
+      throw new Error(`Connection timed out. Unable to reach server at ${BASE_URL}.`);
+    }
+    if (error.message.includes("Failed to fetch") || error.name === "TypeError") {
+      throw new Error(`Unable to connect to server. Please make sure the backend is running on ${BASE_URL}`);
+    }
     console.error(`API Error [${endpoint}]:`, error);
     throw error;
   }
@@ -41,7 +73,20 @@ async function fetchWithHandler(endpoint: string, options: RequestInit = {}) {
 export async function getMarketData(crop: string, state?: string) {
   const params = new URLSearchParams({ crop });
   if (state) params.append("state", state);
-  return fetchWithHandler(`/api/market-data?${params.toString()}`);
+  const data = await fetchWithHandler(`/api/market-data?${params.toString()}`);
+  
+  // Bug Fix: If market data returns 0 explicitly (dataset doesn't have it), mark it missing
+  if (data && (data.current_price === 0 || !data.recent_prices || data.recent_prices.length === 0)) {
+    return {
+      ...data,
+      is_missing_data: true,
+      crop_name: crop,
+      current_price: 0,
+      message: `Market data not available for ${crop} right now.`
+    };
+  }
+  
+  return data;
 }
 
 /**
@@ -87,10 +132,11 @@ export async function getLLMInsight(data: object) {
 
 /**
  * Send a chat message to the AI Advisor.
+ * Now intelligently passes user context directly to the backend.
  */
-export async function sendChatMessage(history: any[], message: string) {
-  return fetchWithHandler("/api/chat", { 
+export async function sendChatMessage(history: any[], message: string, userProfile?: any) {
+  return fetchWithHandler("/api/llm-insight", { 
     method: "POST",
-    body: JSON.stringify({ history, message }),
+    body: JSON.stringify({ history, message, user_profile: userProfile }),
   });
 }
