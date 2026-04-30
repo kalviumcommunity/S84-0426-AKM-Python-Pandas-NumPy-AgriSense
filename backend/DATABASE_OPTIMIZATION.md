@@ -9,3 +9,8 @@
 - Use EXPLAIN ANALYZE for slow queries
 - Implement connection pooling (max 20 connections)
 - Enable query result caching for static crop data
+
+## Monitoring
+- Track query execution time > 100ms
+- Monitor connection pool utilization
+- Set up alerts for deadlocks
