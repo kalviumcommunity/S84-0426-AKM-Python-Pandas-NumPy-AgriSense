@@ -2,6 +2,7 @@
 Crop name normalization and aliasing.
 Handles case-insensitivity, spacing, and synonyms.
 """
+from typing import List
 
 CROP_ALIASES = {
     "wheat": ["wheat"],
@@ -35,11 +36,12 @@ def find_canonical_crop(crop: str) -> str:
     return crop.strip().capitalize()  # fallback to capitalize the input string
 
 def get_all_canonical_crops() -> List[str]:
-    \"\"\"Get list of all supported canonical crop names.
+    """Get list of all supported canonical crop names.
     
     Returns:
         List of canonical crop names in title case
-    \"\"\"\n    return [key.capitalize() for key in CROP_ALIASES.keys()]
+    """
+    return [key.capitalize() for key in CROP_ALIASES.keys()]
 
 def log_crop_search(requested: str, canonical: str, found: bool, count: int = 0):
     """Log crop search results for debugging."""

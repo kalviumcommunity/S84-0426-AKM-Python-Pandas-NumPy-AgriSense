@@ -24,8 +24,12 @@ class YieldService:
 
     def _load_model(self):
         if self.model_path.exists():
-            self.model = joblib.load(self.model_path)
-            print(f"[OK] Yield Predictor Model loaded from {self.model_path}")
+            try:
+                self.model = joblib.load(self.model_path)
+                print(f"[OK] Yield Predictor Model loaded from {self.model_path}")
+            except Exception as e:
+                print(f"[WARN] Failed to load model from {self.model_path}: {e}. Using fallback simulation mode.")
+                self.model = None
         else:
             print(f"[WARN] Warning: Model not found at {self.model_path}. Using fallback simulation mode.")
 

@@ -65,7 +65,7 @@ docker-compose down
 #### 1. Backend on Render or Railway
 - Create a new **Web Service** pointing to the `backend/` directory.
 - Build Command: `pip install -r requirements.txt`
-- Start Command: `uvicorn main:app --host 0.0.0.0 --port 8000`
+- Start Command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
 - Environment Variables:
   - `ENVIRONMENT=production`
   - `REDIS_URL` (optional: add a free Upstash Redis instance or let it use the built-in in-memory cache)
